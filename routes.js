@@ -137,7 +137,6 @@ router.delete("/delete-stock-table", async (req, res) => {
 
 router.post("/upload-and-compare", upload.single("file"), async (req, res) => {
   console.time("Total Processing Time");
-  const client = await pool.connect();
   try {
     if (!req.file) {
       return res.status(400).json({ message: "No file uploaded" });
@@ -236,8 +235,6 @@ router.post("/upload-and-compare", upload.single("file"), async (req, res) => {
       );
 
       const insertResult = await client.query(insertQuery);
-      await client.query("COMMIT");
-
       insertedRecords = insertResult.rows;
     }
 
@@ -261,7 +258,6 @@ router.post("/upload-and-compare", upload.single("file"), async (req, res) => {
     });
   } catch (error) {
     console.error("Error:", error);
-    await client.query("ROLLBACK");
     res.status(500).json({ message: "Server Error" });
   } finally {
     client.release();
