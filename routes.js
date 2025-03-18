@@ -8,22 +8,150 @@ import { formatWhatsAppMessage } from "./helpers.js";
 const router = Router();
 const upload = multer({ dest: "uploads/" });
 
+// router.post("/upload-and-compare", upload.single("file"), async (req, res) => {
+//   try {
+//     if (!req.file) {
+//       return res.status(400).json({ message: "No file uploaded" });
+//     }
+
+//     // Validate file type
+//     const allowedMimeTypes = [
+//       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", // .xlsx
+//       "application/vnd.ms-excel", // .xls
+//     ];
+//     if (!allowedMimeTypes.includes(req.file.mimetype)) {
+//       fs.unlinkSync(req.file.path);
+//       return res.status(400).json({
+//         message: "Invalid file format. Upload an Excel file (.xls or .xlsx)",
+//       });
+//     }
+
+//     // Ensure table exists
+//     await pool.query(`
+//       CREATE TABLE IF NOT EXISTS stock (
+//         sr INTEGER,
+//         it_code TEXT,
+//         supplier TEXT,
+//         description TEXT,
+//         color TEXT,
+//         size TEXT,
+//         sel_price NUMERIC(10,2),
+//         scan_code BIGINT PRIMARY KEY,
+//         stock INT,
+//         created_at TIMESTAMP DEFAULT NOW(),
+//         updated_at TIMESTAMP DEFAULT NOW()
+//       );
+//     `);
+
+//     // Read Excel file
+//     const workbook = XLSX.readFile(req.file.path);
+//     const sheetName = workbook.SheetNames[0];
+//     const sheetData = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
+
+//     // Extract scan_code values from Excel
+//     const excelScanCodes = new Set(
+//       sheetData.map((row) => String(row.ScanCode).trim())
+//     );
+
+//     // Fetch all records from DB
+//     const dbResult = await pool.query("SELECT * FROM stock");
+//     const dbRecords = dbResult.rows;
+
+//     // Find missing records (Present in DB but not in Excel)
+//     const missingRecords = dbRecords.filter(
+//       (record) => !excelScanCodes.has(String(record.scan_code).trim())
+//     );
+
+//     // console.log(missingRecords);
+//     let insertedRecordsCount = 0;
+//     let insertedRecords = [];
+
+//     // Insert new records from Excel into DB
+//     for (let row of sheetData) {
+//       const sr = parseInt(row["Sr."]);
+//       const selPrice = parseFloat(row["SelPrice"]);
+//       const stock = parseInt(row["Stock"]);
+//       const scanCode = parseInt(row["ScanCode"]);
+
+//       if (isNaN(scanCode) || isNaN(sr) || isNaN(selPrice) || isNaN(stock)) {
+//         continue;
+//       }
+
+//       const result = await pool.query(
+//         `INSERT INTO stock (sr, it_code, supplier, description, color, size, sel_price, scan_code, stock, created_at, updated_at)
+//          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
+//          ON CONFLICT (scan_code) DO NOTHING
+//          RETURNING *;`,
+//         [
+//           sr,
+//           row["It.Code"],
+//           row["Supplier :"],
+//           row["Description"],
+//           row["Colour"],
+//           row["Size"],
+//           selPrice,
+//           scanCode,
+//           stock,
+//         ]
+//       );
+//       if (result.rowCount > 0) {
+//         insertedRecordsCount += result.rowCount;
+//         insertedRecords.push(...result.rows);
+//       }
+//     }
+
+//     const formattedMessage = formatWhatsAppMessage(
+//       insertedRecords,
+//       missingRecords
+//     );
+
+//     fs.unlinkSync(req.file.path);
+//     // Generate WhatsApp link
+//     const whatsappURL = `https://web.whatsapp.com/send/?phone=918850513009&text=${formattedMessage}`;
+
+//     res.json({
+//       message: "File uploaded and processed successfully",
+//       recordsInserted: insertedRecordsCount,
+//       insertedRecords,
+//       missingRecordsCount: missingRecords.length,
+//       missingRecords,
+//       whatsappLink: whatsappURL,
+//     });
+//   } catch (error) {
+//     console.error("Error:", error);
+//     res.status(500).json({ message: "Server Error" });
+//   }
+// });
+
+router.delete("/delete-stock-table", async (req, res) => {
+  try {
+    const result = await pool.query("DROP TABLE IF EXISTS stock;");
+    res
+      .status(200)
+      .json({ message: 'Table "stock" has been deleted (if it existed).' });
+  } catch (err) {
+    console.error("Error deleting table:", err);
+    res.status(500).json({ error: "Failed to delete the table." });
+  }
+});
+
 router.post("/upload-and-compare", upload.single("file"), async (req, res) => {
+  console.time("Total Processing Time");
+  const client = await pool.connect();
   try {
     if (!req.file) {
       return res.status(400).json({ message: "No file uploaded" });
     }
 
-    // Validate file type
     const allowedMimeTypes = [
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", // .xlsx
-      "application/vnd.ms-excel", // .xls
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "application/vnd.ms-excel",
     ];
     if (!allowedMimeTypes.includes(req.file.mimetype)) {
       fs.unlinkSync(req.file.path);
-      return res.status(400).json({
-        message: "Invalid file format. Upload an Excel file (.xls or .xlsx)",
-      });
+      return res
+        .status(400)
+        .json({ message: "Invalid file format. Upload an Excel file." });
     }
 
     // Ensure table exists
@@ -43,74 +171,89 @@ router.post("/upload-and-compare", upload.single("file"), async (req, res) => {
       );
     `);
 
-    // Read Excel file
     const workbook = XLSX.readFile(req.file.path);
-    const sheetName = workbook.SheetNames[0];
-    const sheetData = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
+    const sheetData = XLSX.utils.sheet_to_json(
+      workbook.Sheets[workbook.SheetNames[0]]
+    );
 
-    // Extract scan_code values from Excel
+    // Build Excel ScanCodes Set
     const excelScanCodes = new Set(
       sheetData.map((row) => String(row.ScanCode).trim())
     );
 
-    // Fetch all records from DB
-    const dbResult = await pool.query("SELECT * FROM stock");
-    const dbRecords = dbResult.rows;
+    // Fetch DB records in parallel
+    const dbResultPromise = client.query("SELECT scan_code FROM stock");
+    const dbRecordsPromise = client.query("SELECT * FROM stock");
 
-    // Find missing records (Present in DB but not in Excel)
+    const [dbScanCodesResult, dbRecordsResult] = await Promise.all([
+      dbResultPromise,
+      dbRecordsPromise,
+    ]);
+    const dbScanCodesSet = new Set(
+      dbScanCodesResult.rows.map((r) => String(r.scan_code).trim())
+    );
+    const dbRecords = dbRecordsResult.rows;
+
+    // Find missing records
     const missingRecords = dbRecords.filter(
       (record) => !excelScanCodes.has(String(record.scan_code).trim())
     );
 
-    // console.log(missingRecords);
-    let insertedRecordsCount = 0;
+    // Prepare data for batch insert (filter out existing scan_codes)
+    const recordsToInsert = sheetData
+      .filter(
+        (row) =>
+          row.ScanCode && !dbScanCodesSet.has(String(row.ScanCode).trim())
+      )
+      .map((row) => [
+        parseInt(row["Sr."]),
+        row["It.Code"],
+        row["Supplier :"],
+        row["Description"],
+        row["Colour"],
+        row["Size"],
+        parseFloat(row["SelPrice"]),
+        parseInt(row["ScanCode"]),
+        parseInt(row["Stock"]),
+      ])
+      .filter((row) =>
+        row.every((val) => val !== undefined && val !== null && val !== NaN)
+      );
+
     let insertedRecords = [];
 
-    // Insert new records from Excel into DB
-    for (let row of sheetData) {
-      const sr = parseInt(row["Sr."]);
-      const selPrice = parseFloat(row["SelPrice"]);
-      const stock = parseInt(row["Stock"]);
-      const scanCode = parseInt(row["ScanCode"]);
-
-      if (isNaN(scanCode) || isNaN(sr) || isNaN(selPrice) || isNaN(stock)) {
-        continue;
-      }
-
-      const result = await pool.query(
-        `INSERT INTO stock (sr, it_code, supplier, description, color, size, sel_price, scan_code, stock, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
-         ON CONFLICT (scan_code) DO NOTHING
-         RETURNING *;`,
-        [
-          sr,
-          row["It.Code"],
-          row["Supplier :"],
-          row["Description"],
-          row["Colour"],
-          row["Size"],
-          selPrice,
-          scanCode,
-          stock,
-        ]
+    // Insert in batch
+    if (recordsToInsert.length > 0) {
+      await client.query("BEGIN"); // Start transaction
+      const insertQuery = format(
+        `
+        INSERT INTO stock (sr, it_code, supplier, description, color, size, sel_price, scan_code, stock, created_at, updated_at)
+        VALUES %L
+        ON CONFLICT (scan_code) DO NOTHING
+        RETURNING *;
+      `,
+        recordsToInsert
       );
-      if (result.rowCount > 0) {
-        insertedRecordsCount += result.rowCount;
-        insertedRecords.push(...result.rows);
-      }
+
+      const insertResult = await client.query(insertQuery);
+      await client.query("COMMIT");
+
+      insertedRecords = insertResult.rows;
     }
+
+    fs.unlinkSync(req.file.path); // Cleanup uploaded file
 
     const formattedMessage = formatWhatsAppMessage(
       insertedRecords,
       missingRecords
     );
-
-    // Generate WhatsApp link
     const whatsappURL = `https://web.whatsapp.com/send/?phone=918850513009&text=${formattedMessage}`;
+
+    console.timeEnd("Total Processing Time");
 
     res.json({
       message: "File uploaded and processed successfully",
-      recordsInserted: insertedRecordsCount,
+      recordsInserted: insertedRecords.length,
       insertedRecords,
       missingRecordsCount: missingRecords.length,
       missingRecords,
@@ -118,19 +261,10 @@ router.post("/upload-and-compare", upload.single("file"), async (req, res) => {
     });
   } catch (error) {
     console.error("Error:", error);
+    await client.query("ROLLBACK");
     res.status(500).json({ message: "Server Error" });
-  }
-});
-
-router.delete("/delete-stock-table", async (req, res) => {
-  try {
-    const result = await pool.query("DROP TABLE IF EXISTS stock;");
-    res
-      .status(200)
-      .json({ message: 'Table "stock" has been deleted (if it existed).' });
-  } catch (err) {
-    console.error("Error deleting table:", err);
-    res.status(500).json({ error: "Failed to delete the table." });
+  } finally {
+    client.release();
   }
 });
 
