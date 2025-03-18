@@ -87,7 +87,7 @@ router.post("/upload-and-compare", upload.single("file"), async (req, res) => {
           row["It.Code"],
           row["Supplier :"],
           row["Description"],
-          row["Color"],
+          row["Colour"],
           row["Size"],
           selPrice,
           scanCode,
@@ -122,19 +122,17 @@ router.post("/upload-and-compare", upload.single("file"), async (req, res) => {
   }
 });
 
-router.delete('/delete-stock-table', async (req, res) => {
-  console.log("Sushil")
+router.delete("/delete-stock-table", async (req, res) => {
   try {
-    const result = await pool.query('DROP TABLE IF EXISTS stock;');
-    res.status(200).json({ message: 'Table "stock" has been deleted (if it existed).' });
+    const result = await pool.query("DROP TABLE IF EXISTS stock;");
+    res
+      .status(200)
+      .json({ message: 'Table "stock" has been deleted (if it existed).' });
   } catch (err) {
-    console.error('Error deleting table:', err);
-    res.status(500).json({ error: 'Failed to delete the table.' });
+    console.error("Error deleting table:", err);
+    res.status(500).json({ error: "Failed to delete the table." });
   }
 });
-
-
-
 
 router.post("/read-excel", upload.single("file"), async (req, res) => {
   try {
@@ -176,7 +174,7 @@ router.post("/read-excel", upload.single("file"), async (req, res) => {
 router.get("/get-records", async (req, res) => {
   try {
     // Fetch stock data with a limit of 12
-    const result = await pool.query("SELECT * FROM stock LIMIT 20");
+    const result = await pool.query("SELECT * FROM stock LIMIT 25");
     res.json({
       message: "Stock data fetched successfully",
       records: result.rows,

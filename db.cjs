@@ -11,9 +11,13 @@ const client = new Client({
   ssl: { rejectUnauthorized: false },
 });
 
-// client.query("SELECT NOW();")
-//   .then((res) => console.log("Database Time:", res.rows[0].now))
-//   .catch((err) => console.error("Query Error:", err.stack));
+// const client = new Client({
+//   user: process.env.PG_USER,
+//   host: process.env.PG_HOST,
+//   database: process.env.PG_DATABASE,
+//   password: process.env.PG_PASSWORD,
+//   port: process.env.PG_PORT || 5432,
+// });
 
 client
   .connect()
