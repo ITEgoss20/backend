@@ -4,6 +4,11 @@ import XLSX from "xlsx";
 import fs from "fs";
 import pool from "./db.cjs";
 import { formatWhatsAppMessage } from "./helpers.js";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const router = Router();
 const upload = multer({ dest: "uploads/" });
@@ -134,135 +139,6 @@ router.delete("/delete-stock-table", async (req, res) => {
   }
 });
 
-// router.post("/upload-and-compare", upload.single("file"), async (req, res) => {
-//   console.time("Total Processing Time");
-//   try {
-//     if (!req.file) {
-//       return res.status(400).json({ message: "No file uploaded" });
-//     }
-
-//     const allowedMimeTypes = [
-//       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-//       "application/vnd.ms-excel",
-//     ];
-//     if (!allowedMimeTypes.includes(req.file.mimetype)) {
-//       fs.unlinkSync(req.file.path);
-//       return res
-//         .status(400)
-//         .json({ message: "Invalid file format. Upload an Excel file." });
-//     }
-
-//     // Ensure table exists
-//     await pool.query(`
-//       CREATE TABLE IF NOT EXISTS stock (
-//         sr INTEGER,
-//         it_code TEXT,
-//         supplier TEXT,
-//         description TEXT,
-//         color TEXT,
-//         size TEXT,
-//         sel_price NUMERIC(10,2),
-//         scan_code BIGINT PRIMARY KEY,
-//         stock INT,
-//         created_at TIMESTAMP DEFAULT NOW(),
-//         updated_at TIMESTAMP DEFAULT NOW()
-//       );
-//     `);
-
-//     const workbook = XLSX.readFile(req.file.path);
-//     const sheetData = XLSX.utils.sheet_to_json(
-//       workbook.Sheets[workbook.SheetNames[0]]
-//     );
-
-//     // Build Excel ScanCodes Set
-//     const excelScanCodes = new Set(
-//       sheetData.map((row) => String(row.ScanCode).trim())
-//     );
-
-//     // Fetch DB records in parallel
-//     const dbResultPromise = client.query("SELECT scan_code FROM stock");
-//     const dbRecordsPromise = client.query("SELECT * FROM stock");
-
-//     const [dbScanCodesResult, dbRecordsResult] = await Promise.all([
-//       dbResultPromise,
-//       dbRecordsPromise,
-//     ]);
-//     const dbScanCodesSet = new Set(
-//       dbScanCodesResult.rows.map((r) => String(r.scan_code).trim())
-//     );
-//     const dbRecords = dbRecordsResult.rows;
-
-//     // Find missing records
-//     const missingRecords = dbRecords.filter(
-//       (record) => !excelScanCodes.has(String(record.scan_code).trim())
-//     );
-
-//     // Prepare data for batch insert (filter out existing scan_codes)
-//     const recordsToInsert = sheetData
-//       .filter(
-//         (row) =>
-//           row.ScanCode && !dbScanCodesSet.has(String(row.ScanCode).trim())
-//       )
-//       .map((row) => [
-//         parseInt(row["Sr."]),
-//         row["It.Code"],
-//         row["Supplier :"],
-//         row["Description"],
-//         row["Colour"],
-//         row["Size"],
-//         parseFloat(row["SelPrice"]),
-//         parseInt(row["ScanCode"]),
-//         parseInt(row["Stock"]),
-//       ])
-//       .filter((row) =>
-//         row.every((val) => val !== undefined && val !== null && val !== NaN)
-//       );
-
-//     let insertedRecords = [];
-
-//     // Insert in batch
-//     if (recordsToInsert.length > 0) {
-//       await client.query("BEGIN"); // Start transaction
-//       const insertQuery = format(
-//         `
-//         INSERT INTO stock (sr, it_code, supplier, description, color, size, sel_price, scan_code, stock, created_at, updated_at)
-//         VALUES %L
-//         ON CONFLICT (scan_code) DO NOTHING
-//         RETURNING *;
-//       `,
-//         recordsToInsert
-//       );
-
-//       const insertResult = await client.query(insertQuery);
-//       insertedRecords = insertResult.rows;
-//     }
-
-//     fs.unlinkSync(req.file.path); // Cleanup uploaded file
-
-//     const formattedMessage = formatWhatsAppMessage(
-//       insertedRecords,
-//       missingRecords
-//     );
-//     const whatsappURL = `https://web.whatsapp.com/send/?phone=918850513009&text=${formattedMessage}`;
-
-//     console.timeEnd("Total Processing Time");
-
-//     res.json({
-//       message: "File uploaded and processed successfully",
-//       recordsInserted: insertedRecords.length,
-//       insertedRecords,
-//       missingRecordsCount: missingRecords.length,
-//       missingRecords,
-//       whatsappLink: whatsappURL,
-//     });
-//   } catch (error) {
-//     console.error("Error:", error);
-//     res.status(500).json({ message: "Server Error" });
-//   } finally {
-//     client.release();
-//   }
-// });
-
 router.post("/read-excel", upload.single("file"), async (req, res) => {
   try {
     // Step 1: Check if a file was uploaded
@@ -311,6 +187,33 @@ router.get("/get-records", async (req, res) => {
   } catch (error) {
     console.error("Error fetching stock data:", error);
     res.status(500).json({ message: "Server Error" });
+  }
+});
+
+router.get("/get-last-record", async (req, res) => {
+  try {
+    const tableCheckQuery = `
+      SELECT EXISTS (
+        SELECT 1 FROM information_schema.tables 
+        WHERE table_name = 'stock'
+      ) AS table_exists;
+    `;
+
+    const { rows: tableCheckRows } = await pool.query(tableCheckQuery);
+    const tableExists = tableCheckRows[0]?.table_exists;
+
+    if (!tableExists) {
+      return res.json({});
+    }
+
+    // Fetch the latest record if the table exists
+    const query = "SELECT * FROM stock ORDER BY created_at DESC LIMIT 1";
+    const { rows } = await pool.query(query);
+
+    return res.json(rows[0] || {});
+  } catch (error) {
+    console.error("Error fetching latest record:", error);
+    res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
